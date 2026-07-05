@@ -25,10 +25,12 @@ class _RazorpayWebPaymentService implements PaymentService {
     final completer = Completer<PaymentResult>();
     late final StreamSubscription<html.Event> successSubscription;
     late final StreamSubscription<html.Event> cancelSubscription;
+    late final StreamSubscription<html.Event> failureSubscription;
 
     void cleanup() {
       successSubscription.cancel();
       cancelSubscription.cancel();
+      failureSubscription.cancel();
     }
 
     successSubscription =
@@ -56,12 +58,33 @@ class _RazorpayWebPaymentService implements PaymentService {
       completer.completeError('Payment cancelled');
     });
 
+    failureSubscription =
+        html.window.on['blinkit-razorpay-failure'].listen((event) {
+      if (completer.isCompleted) {
+        return;
+      }
+      final detail = (event as html.CustomEvent).detail?.toString() ?? '{}';
+      final data = jsonDecode(detail) as Map<String, dynamic>;
+      final error = data['error'] as Map?;
+      final description = error?['description'] as String?;
+      final reason = error?['reason'] as String?;
+      cleanup();
+      completer.completeError(
+        description?.trim().isNotEmpty == true
+            ? description!
+            : reason?.trim().isNotEmpty == true
+                ? reason!
+                : 'Payment failed',
+      );
+    });
+
     final options = {
       'key': _razorpayKeyId,
       'amount': amountInPaise,
       'currency': 'INR',
       'name': 'Blinkit Grocery',
       'description': description,
+      'image': 'icons/Icon-192.png',
       'prefill': {
         'email': customerEmail,
         'contact': customerContact,
@@ -126,6 +149,11 @@ class _RazorpayWebPaymentService implements PaymentService {
             }
           };
           var checkout = new Razorpay(options);
+          checkout.on('payment.failed', function(response) {
+            window.dispatchEvent(new CustomEvent('blinkit-razorpay-failure', {
+              detail: JSON.stringify(response || {})
+            }));
+          });
           checkout.open();
         });
       ''';

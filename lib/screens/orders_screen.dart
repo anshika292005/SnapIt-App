@@ -176,7 +176,9 @@ class _OrderCard extends StatelessWidget {
                 child: Text(
                   order.paymentProvider == 'razorpay'
                       ? 'Paid with Razorpay'
-                      : 'Payment ${order.status}',
+                      : order.paymentProvider == 'cod'
+                          ? 'Cash on Delivery'
+                          : 'Payment ${order.status}',
                   style: Theme.of(context).textTheme.bodyMedium,
                 ),
               ),
