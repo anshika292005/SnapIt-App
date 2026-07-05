@@ -1,0 +1,72 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return signedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return signedIn()
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    function isSafeOwnerProfileCreate(userId) {
+      return isOwner(userId)
+        && (
+          !('role' in request.resource.data)
+          || request.resource.data.role == 'customer'
+        );
+    }
+
+    function isSafeOwnerProfileUpdate(userId) {
+      return isOwner(userId)
+        && (
+          !('role' in request.resource.data)
+          || request.resource.data.role == resource.data.role
+        );
+    }
+
+    match /products/{productId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isSafeOwnerProfileCreate(userId) || isAdmin();
+      allow update: if isSafeOwnerProfileUpdate(userId) || isAdmin();
+      allow delete: if isOwner(userId) || isAdmin();
+
+      match /orders/{orderId} {
+        allow read: if isOwner(userId) || isAdmin();
+        allow create: if isOwner(userId)
+          && request.resource.data.userId == userId
+          && request.resource.data.status == 'pending';
+        allow update: if (
+            isOwner(userId)
+            && resource.data.userId == userId
+            && request.resource.data.userId == userId
+          )
+          || (
+            isAdmin()
+            && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['status'])
+            && request.resource.data.status in [
+              'pending',
+              'shipped',
+              'delivered',
+              'cancelled'
+            ]
+          );
+        allow delete: if isOwner(userId)
+          && resource.data.userId == userId
+          || isAdmin();
+      }
+    }
+  }
+}
